@@ -219,6 +219,7 @@ func scoreDNA(dna string, score_trie *Node) int32 {
         } else {
             if ! curr_node.is_root {
                 curr_node = curr_node.suffix
+                i -= 1
             }
         }
         fmt.Println("--")
