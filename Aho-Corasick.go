@@ -30,7 +30,7 @@ func genNewNode(is_root bool) *Node {
 
 func log(msg string) {
 
-    IS_SILENT := true
+    IS_SILENT := false
 
     if ! IS_SILENT {
         fmt.Print(msg)
@@ -39,36 +39,34 @@ func log(msg string) {
 
 func createSuffixLinks(curr_node *Node, root_node *Node) {
     for _, next_node := range curr_node.edges {
-        log(fmt.Sprintf("Creating suffix links from node %s\n", next_node.node_name))
+        log(fmt.Sprintf("Creating suffix links from node <%s>\n", next_node.node_name))
         var suffix []byte = next_node.node_name[1:]
         len_suffix := len(suffix)
 
         if len_suffix == 0 {
-            log(fmt.Sprintf("No suffix at %s. Linking to root.\n", next_node.node_name))
+            log(fmt.Sprintf(">No suffix at <%s>. Linking to root.\n", next_node.node_name))
             next_node.suffix = root_node
         } else {
-            log(fmt.Sprintf("Searching for suffix %s\n", string(suffix)))
             for i := 0; i < len_suffix; i++ {
-                log(fmt.Sprintf("Searhing for subsuffix %s in score trie\n", string(suffix)))
-                target_node := searchForNode(string(suffix), root_node, root_node)
-                if target_node != nil {
-                    next_node.suffix = target_node
-                } else {
-                    log(fmt.Sprintf("Linking curr node %s to root.\n", next_node.node_name))
-                    next_node.suffix = root_node
-                }
-
+                log(fmt.Sprintf("Searching for sub-suffix <%s> in score trie\n", string(suffix)))
+                target_node := searchForNode(string(suffix), root_node, root_node) 
+                log(fmt.Sprintf(">Linking curr_node <%s> to target node <%s>\n", next_node.node_name, target_node.node_name))
+                next_node.suffix = target_node
                 suffix = suffix[1:]
+                if target_node != root_node {
+                    // Since we search suffixes from longest to shortest, if we ever get a target_node that isn't a root_node,
+                    // it's a strictly longer suffix than all the ones we _haven't_ checked, hence skip them.
+                    break
+                }
             }
         }
-        log("Creating suffix links\n")
         createSuffixLinks(next_node, root_node)
     }
 }
 
 func createDictSuffixes(curr_node *Node, root_node *Node) {
     for _, next_node := range curr_node.edges {
-        log(fmt.Sprintf("Creating dict_suffix on node <%s>\n", next_node.node_name))
+        log(fmt.Sprintf("@Attempting dict_suffix on node <%s>\n", next_node.node_name))
         connectDictSuffix(next_node, next_node)
         createDictSuffixes(next_node, root_node)
     }
@@ -78,9 +76,11 @@ func connectDictSuffix(curr_node *Node, orig_node *Node) {
     suffix := curr_node.suffix
     log(fmt.Sprintf("Suffix node <%s> is root: %t\n", suffix.node_name, suffix.is_root))
     if suffix != nil && ! suffix.is_root {
-        log(fmt.Sprintf("Creating dict suffix to node <%s> on node <%s>\n", suffix.node_name, orig_node.node_name))
+        log(fmt.Sprintf("@Creating dict suffix to node <%s> on node <%s>\n", suffix.node_name, orig_node.node_name))
         orig_node.dict_suffix = suffix
-        connectDictSuffix(suffix, orig_node)
+        if orig_node.dict_suffix.is_root {
+            connectDictSuffix(suffix, orig_node)
+        }
     }
 }
 
@@ -100,21 +100,6 @@ func searchForNode(target_node_name string, curr_node *Node, root_node *Node) *N
     }
 
     return curr_node
-
-/*
-    curr_index := (len(target_node_name) - 1) - len(curr_node.node_name)
-    log(fmt.Sprintf("target_node_name: %s, curr_index: %d, curr_node.node_name: <%s>\n", target_node_name, curr_index, curr_node.node_name))
-    var target_node *Node
-    for char, child_node := range curr_node.edges {
-        if target_node_name[curr_index] == char {
-            target_node = searchForNode(target_node_name, child_node)
-            if target_node != nil {
-                break
-            } 
-        }
-    }
-    return target_node
-*/
 }
 
 func addGeneToTrie(gene string, score int32, root_node *Node) {
@@ -168,9 +153,11 @@ func generateScoreTrie(genes []string, health []int32) *Node {
 
     for i, gene := range genes {
         health_score := health[i]
+        //log(fmt.Sprintf("Adding gene(%s) with score: %d\n", gene, health_score))
+        if (gene == "") {
+            log(fmt.Sprintf("Empty gene???\n"))
+        }
         addGeneToTrie(gene, health_score, root_node)
-
-        log(fmt.Sprintf("Added gene(%s) with score: %d\n", gene, health_score))
     }
 
     //printTrie(root_node)
@@ -238,6 +225,8 @@ func main() {
     n := int32(nTemp)
 
     genesTemp := strings.Split(readLine(reader), " ")
+    fmt.Println(len(genesTemp))
+    fmt.Printf("%#v", genesTemp[len(genesTemp)-5:])
 
     var genes []string
 
@@ -264,6 +253,9 @@ func main() {
     var min_score int32 = math.MaxInt32
     var max_score int32 = math.MinInt32
 
+    log(fmt.Sprintf("%#v\n", genes))
+    log(fmt.Sprintf("%#v\n", health))
+
     for sItr := 0; sItr < int(s); sItr++ {
         firstLastd := strings.Split(readLine(reader), " ")
 
@@ -287,6 +279,8 @@ printTrie(trie_root_node)
 
         score := scoreDNA(d, trie_root_node, trie_root_node)
 
+        log(fmt.Sprintf(">>>> The DNA strand %s has a score of %d\n", d, score))
+
         if min_score > score {
             min_score = score
         }
@@ -294,7 +288,7 @@ printTrie(trie_root_node)
             max_score = score
         }
     }
-    fmt.Sprintf("%d %d\n", min_score, max_score)
+    fmt.Printf("%d %d\n", min_score, max_score)
 }
 
 func readLine(reader *bufio.Reader) string {
@@ -311,3 +305,4 @@ func checkError(err error) {
         panic(err)
     }
 }
+
