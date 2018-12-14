@@ -30,7 +30,7 @@ func genNewNode(is_root bool) *Node {
 
 func log(msg string) {
 
-    IS_SILENT := false
+    IS_SILENT := true
 
     if ! IS_SILENT {
         fmt.Print(msg)
@@ -49,7 +49,7 @@ func createSuffixLinks(curr_node *Node, root_node *Node) {
         } else {
             for i := 0; i < len_suffix; i++ {
                 log(fmt.Sprintf("Searching for sub-suffix <%s> in score trie\n", string(suffix)))
-                target_node := searchForNode(string(suffix), root_node, root_node) 
+                target_node := searchForNode(string(suffix), root_node) 
                 log(fmt.Sprintf(">Linking curr_node <%s> to target node <%s>\n", next_node.node_name, target_node.node_name))
                 next_node.suffix = target_node
                 suffix = suffix[1:]
@@ -76,18 +76,23 @@ func connectDictSuffix(curr_node *Node, orig_node *Node) {
     suffix := curr_node.suffix
     log(fmt.Sprintf("Suffix node <%s> is root: %t\n", suffix.node_name, suffix.is_root))
     if suffix != nil && ! suffix.is_root {
-        log(fmt.Sprintf("@Creating dict suffix to node <%s> on node <%s>\n", suffix.node_name, orig_node.node_name))
-        orig_node.dict_suffix = suffix
-        if orig_node.dict_suffix.is_root {
+        if suffix.score == 0 {
+            // If score is 0, this node is not in dict. Keep searching by traversing to suffix's suffix.
             connectDictSuffix(suffix, orig_node)
+        } else {
+            log(fmt.Sprintf("@#Creating dict suffix to node <%s> on node <%s>\n", suffix.node_name, orig_node.node_name))
+            orig_node.dict_suffix = suffix
         }
     }
 }
 
-func searchForNode(target_node_name string, curr_node *Node, root_node *Node) *Node {
-    if string(curr_node.node_name) == target_node_name {
-        return curr_node
-    }
+var NODE_SEARCH_MEMO = make(map[string]*Node)
+func searchForNode(target_node_name string, root_node *Node) *Node {
+    if node_ptr, ok := NODE_SEARCH_MEMO[target_node_name]; ok {
+        return node_ptr
+    } 
+
+    curr_node := root_node
 
     var char byte
     var ok bool
@@ -95,9 +100,12 @@ func searchForNode(target_node_name string, curr_node *Node, root_node *Node) *N
     for i, _ := range target_node_name {
         char = target_node_name[i]
         if curr_node, ok = curr_node.edges[char]; ! ok {
+            NODE_SEARCH_MEMO[target_node_name] = root_node
             return root_node
         }
     }
+
+    NODE_SEARCH_MEMO[target_node_name] = curr_node
 
     return curr_node
 }
@@ -140,27 +148,30 @@ func printTrie(root_node *Node) {
 
 func printNode(node *Node, depth int) {
     log(strings.Repeat("# # ", depth))
-    log(fmt.Sprintf("addr: %p, root: %t, score: %d, name: %s\n", node, node.is_root, node.score, string(node.node_name)))
+    log(fmt.Sprintf(">addr: %p, root: %t, score: %d, name: %s\n", node, node.is_root, node.score, string(node.node_name)))
     log(strings.Repeat("# # ", depth))
-    log(fmt.Sprintf("suffix: %p dict_suffix: %p \n", node.suffix, node.dict_suffix))
+    log(fmt.Sprintf("+suffix: %p dict_suffix: %p \n", node.suffix, node.dict_suffix))
     for _, child_node := range node.edges {
         printNode(child_node, depth + 1)
     }
 }
 
+/**
+ * TODO: Memoize this shit somehow.
+ */
 func generateScoreTrie(genes []string, health []int32) *Node {
     var root_node *Node = genNewNode(true)
 
     for i, gene := range genes {
         health_score := health[i]
-        //log(fmt.Sprintf("Adding gene(%s) with score: %d\n", gene, health_score))
+        log(fmt.Sprintf("Adding gene(%s) with score: %d\n", gene, health_score))
         if (gene == "") {
             log(fmt.Sprintf("Empty gene???\n"))
         }
         addGeneToTrie(gene, health_score, root_node)
     }
 
-    //printTrie(root_node)
+    printTrie(root_node)
 
     return root_node
 }
@@ -186,35 +197,42 @@ func scoreDNA(dna string, score_trie *Node, score_trie_root_node *Node) int32 {
 
         if next_node, ok := curr_node.edges[char]; ok {
             curr_node = next_node
+            log(fmt.Sprintf("Now scoring for node %s on transition %d:%s\n", curr_node.node_name, i, string(char)))
+            score += aggDictScore(curr_node)
         } else {
             if ! curr_node.is_root {
-                if curr_node.dict_suffix == nil {
-                    curr_node = score_trie_root_node
-                } else {
-                    curr_node = curr_node.dict_suffix
-                }
-                i -= 1
+                // Root doesn't have a suffix. 
+                curr_node = curr_node.suffix
                 log(fmt.Sprintf("Transition ->[%s] did not exist in edges. Jump suffix link to node <%s>. Decrement pos\n", string(char), curr_node.node_name))
+                i -= 1
             }
         }
-        log(fmt.Sprintf("Now scoring for node %s on transition %d:%s\n", curr_node.node_name, i, string(char)))
-        score += aggDictScore(curr_node)
     }
 
     return score
 }
 
+var AGG_DICT_SCORE_MEMO = make(map[*Node]int32)
+
 func aggDictScore(start_node *Node) int32 {
+    if score, ok := AGG_DICT_SCORE_MEMO[start_node]; ok {
+        return score
+    }
+
     if (start_node == nil) {
         log(fmt.Sprintf("Really shouldn't be getting nil passed in here...\n"))
-    } else {
-        log(fmt.Sprintf("On dict suffix node %s of score %d\n", start_node.node_name, start_node.score))
+    } else if ( ! start_node.is_root) {
+        log(fmt.Sprintf("- On node %s with score %d\n", start_node.node_name, start_node.score))
     }
+    
+    var score int32
     if start_node.dict_suffix == nil {
-        return start_node.score
+        score = start_node.score
     } else {
-        return start_node.score + aggDictScore(start_node.dict_suffix)
+        score = start_node.score + aggDictScore(start_node.dict_suffix)
     }
+    AGG_DICT_SCORE_MEMO[start_node] = score
+    return score
 }
 
 func main() {
@@ -225,8 +243,6 @@ func main() {
     n := int32(nTemp)
 
     genesTemp := strings.Split(readLine(reader), " ")
-    fmt.Println(len(genesTemp))
-    fmt.Printf("%#v", genesTemp[len(genesTemp)-5:])
 
     var genes []string
 
@@ -269,6 +285,8 @@ func main() {
 
         d := firstLastd[2]
 
+        NODE_SEARCH_MEMO = make(map[string]*Node)
+        AGG_DICT_SCORE_MEMO = make(map[*Node]int32)
         temp_genes := genes[first:last+1]
         temp_health := health[first:last+1]
         trie_root_node := generateScoreTrie(temp_genes, temp_health)
